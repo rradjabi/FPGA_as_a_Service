@@ -18,15 +18,16 @@
 package main
 
 import (
-	"bufio"
+//	"bufio"
 	"fmt"
 	"io/ioutil"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
+	//"time"
 )
 
 const (
@@ -65,6 +66,19 @@ const (
 	AmaDeivceInfo     = "device_info"
 	AmaPlatformPrefix = "MA"
 )
+
+const (
+	XdmaUserPath  = "/sys/class/xdma/"
+	UserDeviceDir = "device/"
+	//VendorFile    = "vendor"
+	//DeviceFile    = "device"
+)
+
+type XdmaDeviceInfo struct {
+	Path     string
+	VendorID string
+	DeviceID string
+}
 
 type Pairs struct {
 	Mgmt string
@@ -159,327 +173,399 @@ func IsUserPf(pciID string) bool {
 	return FileExist(fname)
 }
 
-func GetAlveoDevices() ([]Device, error) {
+//func GetAlveoDevices() ([]Device, error) {
+//	var devices []Device
+//	pairMap := make(map[string]*Pairs)
+//	pciFiles, err := ioutil.ReadDir(SysfsDevices)
+//	if err != nil {
+//		return nil, fmt.Errorf("Can't read folder %s", SysfsDevices)
+//	}
+//
+//	for _, pciFile := range pciFiles {
+//		pciID := pciFile.Name()
+//
+//		fname := path.Join(SysfsDevices, pciID, VendorFile)
+//		vendorID, err := GetFileContent(fname)
+//		if err != nil {
+//			return nil, err
+//		}
+//		if strings.EqualFold(vendorID, XilinxVendorID) != true &&
+//			strings.EqualFold(vendorID, AristaVendorID) != true &&
+//			strings.EqualFold(vendorID, AWS_ID) != true &&
+//			strings.EqualFold(vendorID, ADVANTECH_ID) != true {
+//			continue
+//		}
+//
+//		DBD := pciID[:len(pciID)-2]
+//		if _, ok := pairMap[DBD]; !ok {
+//			pairMap[DBD] = &Pairs{
+//				Mgmt: "",
+//				User: "",
+//				Qdma: "",
+//			}
+//		}
+//
+//		// For containers deployed on top of baremetal machines, xilinx FPGA
+//		// in sysfs will always appear as pair of mgmt PF and user PF
+//		// For containers deployed on top of VM, there may be only user PF
+//		// available(mgmt PF is not assigned to the VM)
+//		// so mgmt in Pair may be empty
+//		if IsUserPf(pciID) { //user pf
+//			userDBDF := pciID
+//			romFolder, err := GetFileNameFromPrefix(path.Join(SysfsDevices, pciID), ROMSTR)
+//			count := 0
+//			if err != nil {
+//				return nil, err
+//			}
+//			for romFolder == "" {
+//				if count >= 36 {
+//					break
+//				}
+//				time.Sleep(10 * time.Second)
+//				romFolder, err = GetFileNameFromPrefix(path.Join(SysfsDevices, pciID), ROMSTR)
+//				if romFolder != "" {
+//					time.Sleep(20 * time.Second)
+//					break
+//				}
+//				fmt.Println(count, pciID, romFolder, err)
+//				count += 1
+//			}
+//			// get dsa version
+//			fname = path.Join(SysfsDevices, pciID, romFolder, DSAverFile)
+//			content, err := GetFileContent(fname)
+//			if err != nil {
+//				return nil, err
+//			}
+//			if strings.EqualFold(U30NameConvention, "CommonName") && strings.Contains(content, VtShell) {
+//				content = U30CommonShell
+//			}
+//			dsaVer := content
+//			// get dsa type from dsa version
+//			dsaType := strings.Split(dsaVer, "_")[1]
+//			// get dsa timestamp
+//			fname = path.Join(SysfsDevices, pciID, romFolder, DSAtsFile)
+//			content, err = GetFileContent(fname)
+//			if err != nil {
+//				return nil, err
+//			}
+//			dsaTs := content
+//			// get dsa uuid
+//			fname = path.Join(SysfsDevices, pciID, UUID)
+//			content, err = GetFileContent(fname)
+//			if err != nil {
+//				return nil, err
+//			}
+//			dsaUUID := content[len(content)-6 : len(content)]
+//			// get device id
+//			fname = path.Join(SysfsDevices, pciID, DeviceFile)
+//			content, err = GetFileContent(fname)
+//			if err != nil {
+//				return nil, err
+//			}
+//			devid := content
+//
+//			//get file path for Serial Number
+//			SNFolder := ""
+//			if strings.EqualFold(dsaType, "v70") == true {
+//				SNFolder, err = GetFileNameFromPrefix(path.Join(SysfsDevices, pciID), SNSTRV70)
+//				if err != nil {
+//					return nil, err
+//				}
+//
+//			} else {
+//				SNFolder, err = GetFileNameFromPrefix(path.Join(SysfsDevices, pciID), SNSTR)
+//				if err != nil {
+//					return nil, err
+//				}
+//
+//			}
+//			// get Serial Number
+//			// AWS F1 device has no serial numbers, adding default serial number "F1-Node" for each AWS F1 device
+//			fname = path.Join(SysfsDevices, pciID, SNFolder, SNFile)
+//			content, err = GetFileContent(fname)
+//			if err != nil {
+//				if strings.EqualFold(vendorID, AWS_ID) == true {
+//					content = "F1-Node"
+//				} else if strings.EqualFold(dsaType, "u30") == true {
+//					fmt.Println("No Serial Number detected, Serial Number is must required for u30 device")
+//					return nil, err
+//				} else {
+//					fmt.Println("Device has no serial number detected")
+//				}
+//			}
+//			SN := content
+//			// get user PF node
+//			userpf, err := GetFileNameFromPrefix(path.Join(SysfsDevices, pciID, UserPFKeyword), DRMSTR)
+//			if err != nil {
+//				return nil, err
+//			}
+//			userNode := path.Join(UserPrefix, userpf)
+//			pairMap[DBD].User = userNode
+//
+//			//get qdma device node if it exists
+//			instance, err := GetInstance(userDBDF)
+//			if err != nil {
+//				return nil, err
+//			}
+//
+//			qdmaFolder, err := GetFileNameFromPrefix(path.Join(SysfsDevices, pciID), QDMASTR)
+//			if err != nil {
+//				return nil, err
+//			}
+//
+//			if qdmaFolder != "" {
+//				pairMap[DBD].Qdma = path.Join(QdmaPrefix, QDMASTR+instance+".0")
+//			}
+//
+//			//TODO: check temp, power, fan speed etc, to give a healthy level
+//			//so far, return Healthy
+//			healthy := pluginapi.Healthy
+//			if strings.EqualFold(VirtualDev, "True") {
+//				for i := 0; i < VirtualNum; i++ {
+//					devices = append(devices, Device{
+//						index:      strconv.Itoa(len(devices) + 1),
+//						shellVer:   dsaVer,
+//						deviceType: dsaType,
+//						uuid:       dsaUUID,
+//						timestamp:  dsaTs,
+//						DBDF:       userDBDF + "-" + strconv.Itoa(i),
+//						deviceID:   devid,
+//						Healthy:    healthy,
+//						SN:         SN,
+//						Nodes:      pairMap[DBD],
+//					})
+//				}
+//			} else {
+//				devices = append(devices, Device{
+//					index:      strconv.Itoa(len(devices) + 1),
+//					shellVer:   dsaVer,
+//					deviceType: dsaType,
+//					uuid:       dsaUUID,
+//					timestamp:  dsaTs,
+//					DBDF:       userDBDF,
+//					deviceID:   devid,
+//					Healthy:    healthy,
+//					SN:         SN,
+//					Nodes:      pairMap[DBD],
+//				})
+//			}
+//		} else if IsMgmtPf(pciID) { //mgmt pf
+//			// get mgmt instance
+//			fname = path.Join(SysfsDevices, pciID, InstanceFile)
+//			content, err := GetFileContent(fname)
+//			if err != nil {
+//				return nil, err
+//			}
+//			pairMap[DBD].Mgmt = MgmtPrefix + content
+//		}
+//	}
+//	return devices, nil
+//}
+//
+//// List all AMA devices
+//func GetAMADevices() ([]Device, error) {
+//	var devices []Device
+//	pairMap := make(map[string]*Pairs)
+//	if _, err := os.Stat(DevicesPath); os.IsNotExist(err) {
+//		// no devices path found
+//		return nil, err
+//	}
+//	devFiles, err := ioutil.ReadDir(DevicesPath)
+//	if err != nil {
+//		fmt.Errorf("Cannot read folder %s", DevicesPath)
+//	}
+//
+//	for _, devFile := range devFiles {
+//		if devFile.IsDir() {
+//			// not a device
+//			continue
+//		}
+//
+//		//renderID
+//		devId := devFile.Name()
+//		if !strings.HasPrefix(devId, AmaDevicePrefix) {
+//			// not an AMA device
+//			continue
+//		}
+//
+//		//DBDF
+//		busId, err := GetFileContent(path.Join(MiscClassPath, devId, AmaBusId))
+//		if err != nil {
+//			return nil, err
+//		}
+//
+//		DBD := busId[:len(busId)-2]
+//		if _, ok := pairMap[DBD]; !ok {
+//			pairMap[DBD] = &Pairs{
+//				Mgmt: "",
+//				User: "",
+//				Qdma: "",
+//			}
+//		}
+//		pairMap[DBD].User = path.Join(DevicesPath, devId)
+//		if err != nil {
+//			return nil, err
+//		}
+//
+//		productNameKey, productSNKey, deviceIdKey := "Product name", "Product serial number", "PCIe device ID"
+//		// open additional AMA device info file
+//		file, err := os.Open(path.Join(MiscClassPath, devId, AmaDeivceInfo))
+//		defer file.Close()
+//		if err != nil {
+//			fmt.Errorf("Failed to open file path %s", path.Join(MiscClassPath, devId, AmaDeivceInfo))
+//			return nil, err
+//		}
+//
+//		// read file line by line
+//		fscanner := bufio.NewScanner(file)
+//		fscanner.Split(bufio.ScanLines)
+//		boardName := ""
+//		SN := ""
+//		devid := ""
+//		for fscanner.Scan() {
+//			line := fscanner.Text()
+//			strs := strings.Split(line, "=")
+//			if len(strs) != 2 {
+//				continue
+//			}
+//
+//			if strings.EqualFold(productNameKey, strings.TrimSpace(strs[0])) {
+//				//fmt.Printf("BoardName: %v \n", strings.TrimSpace(strs[1]))
+//				boardName = "MA35"
+//
+//			}
+//			if strings.EqualFold(productSNKey, strings.TrimSpace(strs[0])) {
+//				//fmt.Printf("SerialNumber: %v \n", strings.TrimSpace(strs[1]))
+//				SN = strings.TrimSpace(strs[1])
+//			}
+//			if strings.EqualFold(deviceIdKey, strings.TrimSpace(strs[0])) {
+//				//fmt.Printf("DeviceID: %v \n", strings.TrimSpace(strs[1]))
+//				devid = strings.TrimSpace(strs[1])
+//			}
+//		}
+//		//TODO: check temp, power, fan speed etc, to give a healthy level
+//		//so far, return Healthy
+//		healthy := pluginapi.Healthy
+//		//healthy := "temp-health"
+//		if strings.EqualFold(VirtualDev, "True") {
+//			for i := 0; i < VirtualNum; i++ {
+//				devices = append(devices, Device{
+//					index:      strconv.Itoa(len(devices) + 1),
+//					shellVer:   boardName,
+//					deviceType: boardName,
+//					uuid:       "ma35",
+//					timestamp:  "0",
+//					DBDF:       busId + "-" + strconv.Itoa(i),
+//					deviceID:   devid,
+//					Healthy:    healthy,
+//					SN:         SN,
+//					Nodes:      pairMap[DBD],
+//				})
+//			}
+//		} else {
+//			devices = append(devices, Device{
+//				index:      strconv.Itoa(len(devices) + 1),
+//				shellVer:   boardName,
+//				deviceType: boardName,
+//				uuid:       "ma35",
+//				timestamp:  "0",
+//				DBDF:       busId,
+//				deviceID:   devid,
+//				Healthy:    healthy,
+//				SN:         SN,
+//				Nodes:      pairMap[DBD],
+//			})
+//		}
+//	}
+//	return devices, nil
+//}
+
+func GetXdmaDevices() ([]Device, error) {
 	var devices []Device
-	pairMap := make(map[string]*Pairs)
-	pciFiles, err := ioutil.ReadDir(SysfsDevices)
-	if err != nil {
-		return nil, fmt.Errorf("Can't read folder %s", SysfsDevices)
-	}
-
-	for _, pciFile := range pciFiles {
-		pciID := pciFile.Name()
-
-		fname := path.Join(SysfsDevices, pciID, VendorFile)
-		vendorID, err := GetFileContent(fname)
-		if err != nil {
-			return nil, err
-		}
-		if strings.EqualFold(vendorID, XilinxVendorID) != true &&
-			strings.EqualFold(vendorID, AristaVendorID) != true &&
-			strings.EqualFold(vendorID, AWS_ID) != true &&
-			strings.EqualFold(vendorID, ADVANTECH_ID) != true {
-			continue
-		}
-
-		DBD := pciID[:len(pciID)-2]
-		if _, ok := pairMap[DBD]; !ok {
-			pairMap[DBD] = &Pairs{
-				Mgmt: "",
-				User: "",
-				Qdma: "",
-			}
-		}
-
-		// For containers deployed on top of baremetal machines, xilinx FPGA
-		// in sysfs will always appear as pair of mgmt PF and user PF
-		// For containers deployed on top of VM, there may be only user PF
-		// available(mgmt PF is not assigned to the VM)
-		// so mgmt in Pair may be empty
-		if IsUserPf(pciID) { //user pf
-			userDBDF := pciID
-			romFolder, err := GetFileNameFromPrefix(path.Join(SysfsDevices, pciID), ROMSTR)
-			count := 0
-			if err != nil {
-				return nil, err
-			}
-			for romFolder == "" {
-				if count >= 36 {
-					break
-				}
-				time.Sleep(10 * time.Second)
-				romFolder, err = GetFileNameFromPrefix(path.Join(SysfsDevices, pciID), ROMSTR)
-				if romFolder != "" {
-					time.Sleep(20 * time.Second)
-					break
-				}
-				fmt.Println(count, pciID, romFolder, err)
-				count += 1
-			}
-			// get dsa version
-			fname = path.Join(SysfsDevices, pciID, romFolder, DSAverFile)
-			content, err := GetFileContent(fname)
-			if err != nil {
-				return nil, err
-			}
-			if strings.EqualFold(U30NameConvention, "CommonName") && strings.Contains(content, VtShell) {
-				content = U30CommonShell
-			}
-			dsaVer := content
-			// get dsa type from dsa version
-			dsaType := strings.Split(dsaVer, "_")[1]
-			// get dsa timestamp
-			fname = path.Join(SysfsDevices, pciID, romFolder, DSAtsFile)
-			content, err = GetFileContent(fname)
-			if err != nil {
-				return nil, err
-			}
-			dsaTs := content
-			// get dsa uuid
-			fname = path.Join(SysfsDevices, pciID, UUID)
-			content, err = GetFileContent(fname)
-			if err != nil {
-				return nil, err
-			}
-			dsaUUID := content[len(content)-6 : len(content)]
-			// get device id
-			fname = path.Join(SysfsDevices, pciID, DeviceFile)
-			content, err = GetFileContent(fname)
-			if err != nil {
-				return nil, err
-			}
-			devid := content
-
-			//get file path for Serial Number
-			SNFolder := ""
-			if strings.EqualFold(dsaType, "v70") == true {
-				SNFolder, err = GetFileNameFromPrefix(path.Join(SysfsDevices, pciID), SNSTRV70)
-				if err != nil {
-					return nil, err
-				}
-
-			} else {
-				SNFolder, err = GetFileNameFromPrefix(path.Join(SysfsDevices, pciID), SNSTR)
-				if err != nil {
-					return nil, err
-				}
-
-			}
-			// get Serial Number
-			// AWS F1 device has no serial numbers, adding default serial number "F1-Node" for each AWS F1 device
-			fname = path.Join(SysfsDevices, pciID, SNFolder, SNFile)
-			content, err = GetFileContent(fname)
-			if err != nil {
-				if strings.EqualFold(vendorID, AWS_ID) == true {
-					content = "F1-Node"
-				} else if strings.EqualFold(dsaType, "u30") == true {
-					fmt.Println("No Serial Number detected, Serial Number is must required for u30 device")
-					return nil, err
-				} else {
-					fmt.Println("Device has no serial number detected")
-				}
-			}
-			SN := content
-			// get user PF node
-			userpf, err := GetFileNameFromPrefix(path.Join(SysfsDevices, pciID, UserPFKeyword), DRMSTR)
-			if err != nil {
-				return nil, err
-			}
-			userNode := path.Join(UserPrefix, userpf)
-			pairMap[DBD].User = userNode
-
-			//get qdma device node if it exists
-			instance, err := GetInstance(userDBDF)
-			if err != nil {
-				return nil, err
-			}
-
-			qdmaFolder, err := GetFileNameFromPrefix(path.Join(SysfsDevices, pciID), QDMASTR)
-			if err != nil {
-				return nil, err
-			}
-
-			if qdmaFolder != "" {
-				pairMap[DBD].Qdma = path.Join(QdmaPrefix, QDMASTR+instance+".0")
-			}
-
-			//TODO: check temp, power, fan speed etc, to give a healthy level
-			//so far, return Healthy
-			healthy := pluginapi.Healthy
-			if strings.EqualFold(VirtualDev, "True") {
-				for i := 0; i < VirtualNum; i++ {
-					devices = append(devices, Device{
-						index:      strconv.Itoa(len(devices) + 1),
-						shellVer:   dsaVer,
-						deviceType: dsaType,
-						uuid:       dsaUUID,
-						timestamp:  dsaTs,
-						DBDF:       userDBDF + "-" + strconv.Itoa(i),
-						deviceID:   devid,
-						Healthy:    healthy,
-						SN:         SN,
-						Nodes:      pairMap[DBD],
-					})
-				}
-			} else {
-				devices = append(devices, Device{
-					index:      strconv.Itoa(len(devices) + 1),
-					shellVer:   dsaVer,
-					deviceType: dsaType,
-					uuid:       dsaUUID,
-					timestamp:  dsaTs,
-					DBDF:       userDBDF,
-					deviceID:   devid,
-					Healthy:    healthy,
-					SN:         SN,
-					Nodes:      pairMap[DBD],
-				})
-			}
-		} else if IsMgmtPf(pciID) { //mgmt pf
-			// get mgmt instance
-			fname = path.Join(SysfsDevices, pciID, InstanceFile)
-			content, err := GetFileContent(fname)
-			if err != nil {
-				return nil, err
-			}
-			pairMap[DBD].Mgmt = MgmtPrefix + content
-		}
-	}
-	return devices, nil
-}
-
-// List all AMA devices
-func GetAMADevices() ([]Device, error) {
-	var devices []Device
-	pairMap := make(map[string]*Pairs)
-	if _, err := os.Stat(DevicesPath); os.IsNotExist(err) {
+	pairMap := Pairs{} // Initialize Pairs struct
+	if _, err := os.Stat(XdmaUserPath); os.IsNotExist(err) {
 		// no devices path found
 		return nil, err
 	}
-	devFiles, err := ioutil.ReadDir(DevicesPath)
+	xdmaDirs, err := ioutil.ReadDir(XdmaUserPath)
 	if err != nil {
-		fmt.Errorf("Cannot read folder %s", DevicesPath)
+		return nil, fmt.Errorf("failed to read xdma user directories: %v", err)
 	}
-
-	for _, devFile := range devFiles {
-		if devFile.IsDir() {
-			// not a device
-			continue
-		}
-
-		//renderID
-		devId := devFile.Name()
-		if !strings.HasPrefix(devId, AmaDevicePrefix) {
-			// not an AMA device
-			continue
-		}
-
-		//DBDF
-		busId, err := GetFileContent(path.Join(MiscClassPath, devId, AmaBusId))
-		if err != nil {
-			return nil, err
-		}
-
-		DBD := busId[:len(busId)-2]
-		if _, ok := pairMap[DBD]; !ok {
-			pairMap[DBD] = &Pairs{
-				Mgmt: "",
-				User: "",
-				Qdma: "",
-			}
-		}
-		pairMap[DBD].User = path.Join(DevicesPath, devId)
-		if err != nil {
-			return nil, err
-		}
-
-		productNameKey, productSNKey, deviceIdKey := "Product name", "Product serial number", "PCIe device ID"
-		// open additional AMA device info file
-		file, err := os.Open(path.Join(MiscClassPath, devId, AmaDeivceInfo))
-		defer file.Close()
-		if err != nil {
-			fmt.Errorf("Failed to open file path %s", path.Join(MiscClassPath, devId, AmaDeivceInfo))
-			return nil, err
-		}
-
-		// read file line by line
-		fscanner := bufio.NewScanner(file)
-		fscanner.Split(bufio.ScanLines)
-		boardName := ""
-		SN := ""
-		devid := ""
-		for fscanner.Scan() {
-			line := fscanner.Text()
-			strs := strings.Split(line, "=")
-			if len(strs) != 2 {
-				continue
+	for _, dir := range xdmaDirs {
+		if matched, err := filepath.Match("xdma*_user", dir.Name()); err != nil {
+			return nil, fmt.Errorf("error matching pattern: %v", err)
+		} else if matched {
+			deviceDir := filepath.Join(XdmaUserPath, dir.Name(), UserDeviceDir)
+			vendorID, err := readFileContent(filepath.Join(deviceDir, VendorFile))
+			if err != nil {
+				return nil, fmt.Errorf("failed to read vendor ID for %s: %v", dir.Name(), err)
 			}
 
-			if strings.EqualFold(productNameKey, strings.TrimSpace(strs[0])) {
-				//fmt.Printf("BoardName: %v \n", strings.TrimSpace(strs[1]))
-				boardName = "MA35"
+			deviceID, err := readFileContent(filepath.Join(deviceDir, DeviceFile))
+			if err != nil {
+				return nil, fmt.Errorf("failed to read device ID for %s: %v", dir.Name(), err)
+			}
 
-			}
-			if strings.EqualFold(productSNKey, strings.TrimSpace(strs[0])) {
-				//fmt.Printf("SerialNumber: %v \n", strings.TrimSpace(strs[1]))
-				SN = strings.TrimSpace(strs[1])
-			}
-			if strings.EqualFold(deviceIdKey, strings.TrimSpace(strs[0])) {
-				//fmt.Printf("DeviceID: %v \n", strings.TrimSpace(strs[1]))
-				devid = strings.TrimSpace(strs[1])
-			}
-		}
-		//TODO: check temp, power, fan speed etc, to give a healthy level
-		//so far, return Healthy
-		healthy := pluginapi.Healthy
-		//healthy := "temp-health"
-		if strings.EqualFold(VirtualDev, "True") {
-			for i := 0; i < VirtualNum; i++ {
+			// Check if vendor and device match expected values
+			if vendorID == "0x10ee" && deviceID == "0x9034" {
 				devices = append(devices, Device{
 					index:      strconv.Itoa(len(devices) + 1),
-					shellVer:   boardName,
-					deviceType: boardName,
-					uuid:       "ma35",
+					shellVer:   "aeva_vmss_e1.s_v0", // boardName,
+					deviceType: "aeva_vmss_e1.s_v0", // boardName,
+					uuid:       "aeva_vmss_e1.s_v0", // boardName,
 					timestamp:  "0",
-					DBDF:       busId + "-" + strconv.Itoa(i),
-					deviceID:   devid,
-					Healthy:    healthy,
-					SN:         SN,
-					Nodes:      pairMap[DBD],
+					DBDF:       "", // busId,
+					deviceID:   "", // devid,
+					Healthy:    pluginapi.Healthy,
+					SN:         "", // SN,
+					Nodes:      &pairMap,
 				})
 			}
-		} else {
-			devices = append(devices, Device{
-				index:      strconv.Itoa(len(devices) + 1),
-				shellVer:   boardName,
-				deviceType: boardName,
-				uuid:       "ma35",
-				timestamp:  "0",
-				DBDF:       busId,
-				deviceID:   devid,
-				Healthy:    healthy,
-				SN:         SN,
-				Nodes:      pairMap[DBD],
-			})
 		}
 	}
 	return devices, nil
 }
 
-func GetDevices() ([]Device, error) {
-	AMADevicesArry, err := GetAMADevices()
+func readFileContent(filePath string) (string, error) {
+	content, err := ioutil.ReadFile(filePath)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	AlveoDevicesArry, err := GetAlveoDevices()
+	return strings.TrimSpace(string(content)), nil
+}
+
+//func GetDevices() ([]Device, error) {
+//	AMADevicesArry, err := GetAMADevices()
+//	if err != nil {
+//		return nil, err
+//	}
+//	AlveoDevicesArry, err := GetAlveoDevices()
+//	if err != nil {
+//		return nil, err
+//	}
+//	//combine Alveo device list and AMA device list into one list
+//	for _, AlveoDevice := range AlveoDevicesArry {
+//		AMADevicesArry = append(AMADevicesArry, AlveoDevice)
+//	}
+//	return AMADevicesArry, err
+//}
+
+func main() {
+	xdmaDevices, err := GetXdmaDevices()
 	if err != nil {
-		return nil, err
+		fmt.Printf("Error: %v\n", err)
+		return
 	}
-	//combine Alveo device list and AMA device list into one list
-	for _, AlveoDevice := range AlveoDevicesArry {
-		AMADevicesArry = append(AMADevicesArry, AlveoDevice)
+
+	if len(xdmaDevices) == 0 {
+		fmt.Println("No matching xdma user devices found.")
+		return
 	}
-	return AMADevicesArry, err
+
+	fmt.Println("Found matching xdma user devices:")
+	for _, device := range xdmaDevices {
+		fmt.Println(device)
+	}
 }
 
 /*
