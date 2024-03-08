@@ -478,51 +478,68 @@ func GetAMADevices() ([]Device, error) {
 	return devices, nil
 }
 
-func GetXdmaDevices() ([]Device, error) {
-	var devices []Device
-	pairMap := Pairs{} // Initialize Pairs struct
-	if _, err := os.Stat(XdmaUserPath); os.IsNotExist(err) {
-		// no devices path found
-		return nil, err
-	}
-	xdmaDirs, err := ioutil.ReadDir(XdmaUserPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read xdma user directories: %v", err)
-	}
-	for _, dir := range xdmaDirs {
-		if matched, err := filepath.Match("xdma*_user", dir.Name()); err != nil {
-			return nil, fmt.Errorf("error matching pattern: %v", err)
-		} else if matched {
-			deviceDir := filepath.Join(XdmaUserPath, dir.Name(), UserDeviceDir)
-			vendorID, err := readFileContent(filepath.Join(deviceDir, VendorFile))
-			if err != nil {
-				return nil, fmt.Errorf("failed to read vendor ID for %s: %v", dir.Name(), err)
-			}
-
-			deviceID, err := readFileContent(filepath.Join(deviceDir, DeviceFile))
-			if err != nil {
-				return nil, fmt.Errorf("failed to read device ID for %s: %v", dir.Name(), err)
-			}
-
-			// Check if vendor and device match expected values
-			if vendorID == "0x10ee" && deviceID == "0x9034" {
-				devices = append(devices, Device{
-					index:      strconv.Itoa(len(devices) + 1),
-					shellVer:   "aeva_vmss_e1.s_v0", // boardName,
-					deviceType: "aeva_vmss_e1.s_v0", // boardName,
-					uuid:       "aeva_vmss_e1.s_v0", // boardName,
-					timestamp:  "0",
-					DBDF:       "", // busId,
-					deviceID:   "", // devid,
-					Healthy:    pluginapi.Healthy,
-					SN:         "", // SN,
-					Nodes:      &pairMap,
-				})
-			}
-		}
-	}
-	return devices, nil
-}
+//func GetXdmaDevices() ([]Device, error) {
+//	var devices []Device
+//	pairMap := Pairs{} // Initialize Pairs struct
+//
+//	// Check if XDMA device
+//	_, err := os.Stat(XdmaUserPath)
+//	if os.IsNotExist(err) {
+//		return devices, nil
+//	}
+//
+//	xdmaDirs, err := ioutil.ReadDir(XdmaUserPath)
+//	if err != nil {
+//		return nil, fmt.Errorf("failed to read xdma user directories: %v", err)
+//	}
+//	for _, dir := range xdmaDirs {
+//		if matched, err := filepath.Match("xdma*_user", dir.Name()); err != nil {
+//			return nil, fmt.Errorf("error matching pattern: %v", err)
+//		} else if matched {
+//			deviceDir := filepath.Join(XdmaUserPath, dir.Name(), UserDeviceDir)
+//			vendorID, err := readFileContent(filepath.Join(deviceDir, VendorFile))
+//			if err != nil {
+//				return nil, fmt.Errorf("failed to read vendor ID for %s: %v", dir.Name(), err)
+//			}
+//
+//			deviceID, err := readFileContent(filepath.Join(deviceDir, DeviceFile))
+//			if err != nil {
+//				return nil, fmt.Errorf("failed to read device ID for %s: %v", dir.Name(), err)
+//			}
+//
+//			sn_iterator := 1
+//			// Check if vendor and device match expected values
+//			if vendorID == "0x10ee" && deviceID == "0x9034" {
+//				//DBD := pciID[:len(pciID)-2]
+//				//if _, ok := pairMap[DBD]; !ok {
+//				//	pairMap[DBD] = &Pairs{
+//				//		Mgmt: "",
+//				//		User: "",
+//				//		Qdma: "",
+//				//	}
+//				//}
+//
+//				if sn_iterator > 1 {
+//					continue
+//				}
+//				devices = append(devices, Device{
+//					index:      strconv.Itoa(len(devices) + 1),
+//					shellVer:   "aeva_vmss_e1.s_v0", // boardName,
+//					deviceType: "aeva_vmss_e1.s_v0", // boardName,
+//					uuid:       "aeva",              // boardName,
+//					timestamp:  "2",
+//					DBDF:       "0000:01:00.1", //"xdmaBusId" + strconv.Itoa(sn_iterator), // busId,
+//					deviceID:   "0x9034",       // devid,
+//					Healthy:    pluginapi.Healthy,
+//					SN:         strconv.Itoa(sn_iterator), // SN,
+//					Nodes:      &pairMap,                  //pairMap[DBD],
+//				})
+//				sn_iterator++
+//			}
+//		}
+//	}
+//	return devices, nil
+//}
 
 func readFileContent(filePath string) (string, error) {
 	content, err := ioutil.ReadFile(filePath)
@@ -555,53 +572,95 @@ func GetDevices() ([]Device, error) {
 	return devices, err
 }
 
-//func main() {
-//	xdmaDevices, err := GetXdmaDevices()
-//	if err != nil {
-//		fmt.Printf("Error: %v\n", err)
-//		return
-//	}
-//
-//	if len(xdmaDevices) == 0 {
-//		fmt.Println("No matching xdma user devices found.")
-//		return
-//	}
-//
-//	fmt.Println("Found matching xdma user devices:")
-//	for _, device := range xdmaDevices {
-//		fmt.Println(device)
-//	}
-//}
-
-/*
-func main() {
-
-	//ama_devices, err := GetAMADevices()
-	//if err != nil {
-	//	fmt.Printf("%s !!!\n", err)
-	//	return
-	//}
-		ama_devices, err := GetAMADevices()
-		if err != nil {
-			fmt.Printf("%s !!!\n", err)
-			return
-		}
-		for _, device := range ama_devices {
-			fmt.Printf("AMADevice: %v \n", device)
-			fmt.Printf("AMADriver: %v \n",device.Nodes)
-		}
-	all_devices, err := GetAMADevices()
+func GetXdmaDevices() ([]Device, error) {
+	var devices []Device
+	pairMap := make(map[string]*Pairs)
+	pciFiles, err := ioutil.ReadDir(SysfsDevices)
 	if err != nil {
-		fmt.Printf("%s !!!\n", err)
-		return
+		return nil, fmt.Errorf("Can't read folder %s", SysfsDevices)
 	}
-	for _, device := range all_devices {
-		fmt.Printf("AMA ShellVer: %v \n", device.shellVer)
-		fmt.Printf("AMA Timestamp: %v \n", device.timestamp)
-		fmt.Printf("AMA DBDF: %v \n", device.DBDF)
-		fmt.Printf("AMA deviceID: %v \n", device.deviceID)
-		fmt.Printf("AMA SN: %v \n", device.SN)
-		fmt.Printf("AMA Driver: %v \n", device.Nodes)
+
+	for _, pciFile := range pciFiles {
+		pciID := pciFile.Name()
+
+		fname := path.Join(SysfsDevices, pciID, VendorFile)
+		vendorID, err := GetFileContent(fname)
+		if err != nil {
+			return nil, err
+		}
+		if strings.EqualFold(vendorID, XilinxVendorID) != true &&
+			strings.EqualFold(vendorID, AristaVendorID) != true &&
+			strings.EqualFold(vendorID, AWS_ID) != true &&
+			strings.EqualFold(vendorID, ADVANTECH_ID) != true {
+			continue
+		}
+		// TODO : make a check against device file exit if not
+		//if strings.EqualFold(deviceID, XilinxVendorID) != true &&
+
+		DBD := pciID[:len(pciID)-2]
+		if _, ok := pairMap[DBD]; !ok {
+			pairMap[DBD] = &Pairs{
+				Mgmt: "",
+				User: "",
+				Qdma: "",
+			}
+		}
+
+		// get xdma PF node
+		//xdmapf, err := path.Join(SysfsDevices, pciID, "xdma", "xdma0_user") // todo : change this to xdma*_user
+		//xdmapf, err := path.Join(SysfsDevices, pciID, "xdma", "xdma0_user") // todo : change this to xdma*_user
+		//if err != nil {
+		//	return nil, err
+		//} // xdma0_user is assumed
+		userNode := path.Join("/dev", "xdma0_user") //UserPrefix, xdmapf)
+		pairMap[DBD].User = userNode
+
+		//// Check if XDMA device
+		//_, err := os.Stat(XdmaUserPath)
+		//if os.IsNotExist(err) {
+		//	return devices, nil
+		//}
+
+		xdmaDirs, err := ioutil.ReadDir(XdmaUserPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read xdma user directories: %v", err)
+		}
+		for _, dir := range xdmaDirs {
+			if matched, err := filepath.Match("xdma*_user", dir.Name()); err != nil {
+				return nil, fmt.Errorf("error matching pattern: %v", err)
+			} else if matched {
+				deviceDir := filepath.Join(XdmaUserPath, dir.Name(), UserDeviceDir)
+				vendorID, err := readFileContent(filepath.Join(deviceDir, VendorFile))
+				if err != nil {
+					return nil, fmt.Errorf("failed to read vendor ID for %s: %v", dir.Name(), err)
+				}
+
+				deviceID, err := readFileContent(filepath.Join(deviceDir, DeviceFile))
+				if err != nil {
+					return nil, fmt.Errorf("failed to read device ID for %s: %v", dir.Name(), err)
+				}
+
+				sn_iterator := 1
+				if sn_iterator > 1 {
+					continue
+				}
+				// Check if vendor and device match expected values
+				if vendorID == "0x10ee" && deviceID == "0x9034" {
+					devices = append(devices, Device{
+						index:      strconv.Itoa(len(devices) + 1),
+						shellVer:   "aeva_vmss_e1.s_v0", // boardName,
+						deviceType: "aeva_vmss_e1.s_v0", // boardName,
+						uuid:       "aeva_vmss_e1.s_v0", // boardName,
+						timestamp:  "2",
+						DBDF:       "", // busId,
+						deviceID:   "", // devid,
+						Healthy:    pluginapi.Healthy,
+						SN:         "", // SN,
+						Nodes:      pairMap[DBD],
+					})
+				}
+			}
+		}
 	}
+	return devices, nil
 }
-*/
